@@ -21,6 +21,7 @@
 from flask import request, send_file, Response
 import requests
 import os.path
+import shutil
 from PIL import Image
 import subprocess
 import codecs
@@ -135,7 +136,7 @@ def cover_art():
 	if not status:
 		return res
 
-	if not res.has_cover_art or not os.path.isfile(os.path.join(res.path, 'cover.jpg')):
+	if not res.has_cover_art:
 		return request.error_formatter(70, 'Cover art not found')
 
 	size = request.args.get('size')
@@ -144,12 +145,24 @@ def cover_art():
 			size = int(size)
 		except:
 			return request.error_formatter(0, 'Invalid size value')
-	else:
-		return send_file(os.path.join(res.path, 'cover.jpg'))
 
-	im = Image.open(os.path.join(res.path, 'cover.jpg'))
+	original_cache_path = os.path.join(config.get('webapp', 'cache_dir'), '0')
+	if not os.path.exists(original_cache_path):
+		os.makedirs(original_cache_path)
+
+	cached_original_path = os.path.join(original_cache_path, str(res.id))
+	if not os.path.isfile(cached_original_path):
+		if not os.path.isfile(os.path.join(res.path, 'cover.jpg')):
+			return request.error_formatter(70, 'Cover art original not found')
+		# TODO: Get from id3, fallback to cover.jpg and store as original
+		shutil.copy(os.path.join(res.path, 'cover.jpg'), cached_original_path)
+
+	if not size:
+		return send_file(cached_original_path)
+
+	im = Image.open(cached_original_path)
 	if size > im.size[0] and size > im.size[1]:
-		return send_file(os.path.join(res.path, 'cover.jpg'))
+		return send_file(cached_original_path)
 
 	size_path = os.path.join(config.get('webapp', 'cache_dir'), str(size))
 	path = os.path.join(size_path, str(res.id))
