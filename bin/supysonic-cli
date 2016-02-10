@@ -19,7 +19,7 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-import sys, cmd, argparse, getpass, time
+import sys, cmd, argparse, getpass, time, os
 from supysonic import config
 
 from supysonic.db import get_store, Folder, User
@@ -222,6 +222,25 @@ class CLI(cmd.Cmd):
 			print >>sys.stderr, UserManager.error_str(status)
 		else:
 			print "Successfully changed '{}' password".format(name)
+
+	cache_parser = CLIParser(prog = 'cache', add_help = False)
+	cache_subparsers = cache_parser.add_subparsers(dest = 'action')
+	cache_subparsers.add_parser('wipe', help = 'Wipes the cache directory', add_help = False)
+	
+	def cache_wipe(self):
+		cache_dir = config.get('webapp', 'cache_dir')
+
+		if not os.path.exists(cache_dir):
+			print "Cache directory '{}' not found".format(cache_dir)
+			return
+
+		for root, dirs, files in os.walk(cache_dir, topdown=False):
+			for name in files:
+				os.remove(os.path.join(root, name))
+			for name in dirs:
+				os.rmdir(os.path.join(root, name))
+
+		print "Wiped cache directory '{}'".format(cache_dir)
 
 if __name__ == "__main__":
 	if not config.check():
