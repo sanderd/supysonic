@@ -53,7 +53,7 @@ def compile_concat(compile, concat, state):
 	return statement % (left, right)
 
 class Scanner:
-	def __init__(self, store):
+	def __init__(self, store, force_rescan = False):
 		self.__store = store
 
 		self.__added_artists = 0
@@ -65,6 +65,7 @@ class Scanner:
 
 		extensions = config.get('base', 'scanner_extensions')
 		self.__extensions = map(str.lower, extensions.split()) if extensions else None
+		self.__force_rescan = force_rescan
 
 		self.__folders_to_check = set()
 		self.__artists_to_check = set()
@@ -75,6 +76,20 @@ class Scanner:
 			raise Exception("There's still something to check. Did you run Scanner.finish()?")
 
 	def scan(self, folder, progress_callback = None):
+
+		# Re-scan cover status if requested. Other
+		folders = [ folder ]
+		while folders:
+			f = folders.pop()
+
+			if self.__force_rescan == True:
+				f.has_cover_art = self.scan_folder_cover_art(f) == True
+			else:
+				f.has_cover_art = f.has_cover_art or os.path.isfile(os.path.join(f.path, 'cover.jpg'))
+
+			self.__store.add(f)
+			folders += f.children
+
 		# Scan new/updated files
 		files = [ os.path.join(root, f) for root, _, fs in os.walk(folder.path) for f in fs if self.__is_valid_path(os.path.join(root, f)) ]
 		total = len(files)
@@ -89,13 +104,6 @@ class Scanner:
 		# Remove files that have been deleted
 		for track in [ t for t in self.__store.find(Track, Track.root_folder_id == folder.id) if not self.__is_valid_path(t.path) ]:
 			self.remove_file(track.path)
-
-		# Update cover art info
-		folders = [ folder ]
-		while folders:
-			f = folders.pop()
-			f.has_cover_art = os.path.isfile(os.path.join(f.path, 'cover.jpg'))
-			folders += f.children
 
 		folder.last_scan = int(time.time())
 
@@ -131,7 +139,7 @@ class Scanner:
 		tr = self.__store.find(Track, Track.path == path).one()
 		add = False
 		if tr:
-			if not int(os.path.getmtime(path)) > tr.last_modification:
+			if self.__force_rescan == False and not int(os.path.getmtime(path)) > tr.last_modification:
 				return
 
 			tag = self.__try_load_tag(path)
@@ -172,6 +180,30 @@ class Scanner:
 
 			self.__store.add(tr)
 			self.__added_tracks += 1
+
+	def scan_folder_cover_art(self, folder):
+		if os.path.exists(os.path.join(folder.path, 'cover.jpg')):
+			return True
+
+		files = [ os.path.join(folder.path, f)
+				  for f in os.listdir(folder.path)
+				  if os.path.isfile(os.path.join(folder.path, f)) and self.__is_valid_path(os.path.join(folder.path, f)) ]
+
+		for file in files:
+			complex_tag = self.__try_load_tag_mp3(file)
+			cover_art_tag = None
+			if complex_tag:
+				cover_art_tag = self.__try_read_tag(complex_tag, 'APIC:', None, lambda x: x)
+
+			if cover_art_tag is None or cover_art_tag.type != 3:
+				continue
+
+			with open(os.path.join(os.path.join(config.get('webapp', 'cache_dir'), '0', str(folder.id))), 'wb') as img:
+				img.write(cover_art_tag.data)
+
+			return True
+
+		return False
 
 	def remove_file(self, path):
 		tr = self.__store.find(Track, Track.path == path).one()
@@ -263,6 +295,7 @@ class Scanner:
 			fold.name = name
 			fold.path = full_path
 			fold.parent = folder
+			fold.has_cover_art = self.scan_folder_cover_art(fold)
 
 			self.__store.add(fold)
 
@@ -273,6 +306,12 @@ class Scanner:
 	def __try_load_tag(self, path):
 		try:
 			return mutagen.File(path, easy = True)
+		except:
+			return None
+
+	def __try_load_tag_mp3(self, path):
+		try:
+			return mutagen.File(path, easy = False)
 		except:
 			return None
 
