@@ -198,7 +198,11 @@ class Scanner:
 			if cover_art_tag is None or cover_art_tag.type != 3:
 				continue
 
-			with open(os.path.join(os.path.join(config.get('webapp', 'cache_dir'), '0', str(folder.id))), 'wb') as img:
+			cache_folder = os.path.join(config.get('webapp', 'cache_dir'), '0')
+			if not os.path.exists(cache_folder):
+				os.makedirs(cache_folder)
+
+			with open(os.path.join(os.path.join(cache_folder, str(folder.id))), 'wb') as img:
 				img.write(cover_art_tag.data)
 
 			return True
